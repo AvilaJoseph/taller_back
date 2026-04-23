@@ -77,11 +77,36 @@ async function updateServices(req, res) {
         return res.status(400).json({ message: 'Es necesario el identificador' });
     }
 
-    if (!name_services || !description_services || !price) {
+    if (!name_services || !description_services || price === undefined) {
         return res.status(400).json({ message: 'Faltan campos obligatorios' });
     }
     try {
+        const fields = {
+            name_services,
+            description_services,
+            price
+        }
+        const update = Object.entries(fields).filter(([_, value]) => value !== undefined)
+        if (update.rows.length === 0) {
+            return res.status(404).json({ error: "Debe proporcionar al menos un campo para actualizar" })
+        }
+        const setClause = update.map(([key, _], index) => `${key} = $${index + 1}`).join(', ')
+        const values = update.map(([_, value]) => value)
+        values.push(id_services)
 
+        const query = `
+            UPDATE services
+            SET ${setClause},
+                updated_at = NOW()
+            WHERE id_services = ${values.length}`
+        const result = await pool.query(query, values)
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Servicio no encontrado' })
+        }
+        res.json({
+            message: 'Servicio Actualizado',
+            service: result.rows[0]
+        })
     } catch (error) {
         console.log(error)
         res.status(500).json({ error: 'Error en el servidor' })

@@ -87,7 +87,7 @@ async function updateServices(req, res) {
             price
         }
         const update = Object.entries(fields).filter(([_, value]) => value !== undefined)
-        if (update.rows.length === 0) {
+        if (update.length === 0) {
             return res.status(404).json({ error: "Debe proporcionar al menos un campo para actualizar" })
         }
         const setClause = update.map(([key, _], index) => `${key} = $${index + 1}`).join(', ')
@@ -98,7 +98,7 @@ async function updateServices(req, res) {
             UPDATE services
             SET ${setClause},
                 updated_at = NOW()
-            WHERE id_services = ${values.length}`
+            WHERE id_services = $${values.length}`
         const result = await pool.query(query, values)
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Servicio no encontrado' })
@@ -112,3 +112,26 @@ async function updateServices(req, res) {
         res.status(500).json({ error: 'Error en el servidor' })
     }
 }
+
+async function deleteService(req, res) {
+    const { id_services } = req.params
+    try {
+        const result = await pool.query(
+            `UPDATE services
+            SET is_active = FALSE,
+                updated_at = NOW()
+            WHERE id_services = $1
+            RETURNING *`,
+            [id_services]
+        )
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Servicio no encontrado' })
+        }
+        res.json({ message: 'Servicio no encontrado' })
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Error en el servidor' })
+    }
+}
+
+module.exports = { getServices, getServicesId, createServices, updateServices, deleteService }

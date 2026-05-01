@@ -58,7 +58,7 @@ async function updateEmployees(req, res) {
             is_active
         }
         const update = Object.entries(fields).filter(([_, value]) => value !== undefined)
-        if (update.rows.length === 0) {
+        if (update.length === 0) {
             return res.status(404).json({ error: "Debe proporcionar al menos un campo para actualizar" });
         }
 
@@ -71,6 +71,7 @@ async function updateEmployees(req, res) {
             SET ${setClause},
                 updated_at = NOW()
             WHERE id_employees = $${values.length}
+            RETURNING *
         `
         const result = await pool.query(query, values)
         if (result.length === 0) {

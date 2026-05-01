@@ -11,9 +11,6 @@ async function getClients(req, res) {
             email
         FROM clients`
         )
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Cliente no encontrado' })
-        }
         res.json(result.rows)
     } catch (error) {
         console.log(error)

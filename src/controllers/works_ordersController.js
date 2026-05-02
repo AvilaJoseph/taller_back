@@ -15,7 +15,7 @@ async function getWorkOrders(req, res) {
         if (result.rows.length === 0) {
             res.status(404).json({ message: 'No se encontraron ordenes' })
         }
-        res.status(201).json({
+        res.status(200).json({
             message: 'Ordenes encontradas',
             WorkOrders: result.rows
         })
@@ -65,6 +65,7 @@ async function createWorkOrder(req, res) {
     const client = await pool.connect();
     try {
         const { vehicle_id, employee_id, status, description, diagnosis, services } = req.body;
+
         if (!vehicle_id || !employee_id) {
             return res.status(400).json({ error: "Vehículo y empleado son obligatorios" });
         }
@@ -80,17 +81,26 @@ async function createWorkOrder(req, res) {
         );
 
         const OrderWorkId = queryResult.rows[0].id_work_orders;
-        let totalCost = 0
+        let totalCost = 0;
 
-        if (services && services.length > 0) {
+        if (services && Array.isArray(services) && services.length > 0) {
+            
+            const serviceIds = services.map(s => s.services_id);
+
+            const serviceData = await client.query(
+                `SELECT id_services, price FROM services WHERE id_services = ANY($1)`,
+                [serviceIds]
+            );
+
+            const pricesMap = {};
+            serviceData.rows.forEach(row => {
+                pricesMap[row.id_services] = parseFloat(row.price);
+            });
+
             for (const s of services) {
-                const serviceData = await client.query(
-                    `SELECT price FROM services WHERE id_services = $1`,
-                    [s.services_id]
-                );
-
-                if (serviceData.rows.length > 0) {
-                    const realPrice = parseFloat(serviceData.rows[0].price);
+                const realPrice = pricesMap[s.services_id];
+                
+                if (realPrice !== undefined) {
                     const subtotal = s.quantity * realPrice;
                     totalCost += subtotal;
 
@@ -98,24 +108,64 @@ async function createWorkOrder(req, res) {
                         `INSERT INTO work_order_services (work_orders_id, services_id, quantity, unit_price, subtotal)
                         VALUES ($1, $2, $3, $4, $5)`,
                         [OrderWorkId, s.services_id, s.quantity, realPrice, subtotal]
-                    )
+                    );
                 }
             }
         }
 
-        await client.query('UPDATE work_orders SET total_cost = $1 WHERE id_work_orders = $2', [totalCost, OrderWorkId])
+        await client.query(
+            'UPDATE work_orders SET total_cost = $1 WHERE id_work_orders = $2', 
+            [totalCost, OrderWorkId]
+        );
 
         await client.query('COMMIT');
+
         res.status(201).json({
             message: 'Orden creada exitosamente',
-            id: OrderWorkId
+            id: OrderWorkId,
+            total: totalCost
         });
 
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error("Error en createWorkOrder:", error);
+        console.error("Error detallado:", error);
         res.status(500).json({ error: "Error interno al crear la orden" });
     } finally {
         client.release();
     }
 }
+
+async function updatedWorkOrder(req, res) {
+    const { id_work_orders } = req.params
+    const { status, description, diagnosis } = req.body
+    try {
+        const existe = await pool.query(
+            `SELECT id_work_orders 
+            FROM work_orders
+            WHERE id_work_orders = $1`,
+            [id_work_orders]
+        )
+        if (existe.rows.length === 0) {
+            res.status(404).json({ message: 'Orden no encontrada' })
+        }
+        const result = await pool.query(
+            `UPDATE work_orders
+            SET
+                status = COALESCE($1, status),
+                description = COALESCE($2, description),
+                diagnosis = COALESCE($3, diagnosis)
+            WHERE id_work_orders = $4
+            RETURNING *`,
+            [status, description, diagnosis, id_work_orders]
+        )
+        res.status(200).json({
+            message: 'Orden actualizada',
+            workOrder: result.rows[0]
+        })
+    } catch (error) {
+        console.error("Error en updatedWorkOrder:", error)
+        res.status(500).json({ message: 'Error interno del servidor' })
+    }
+}
+
+module.exports = { getWorkOrders, getWorkOrderId, createWorkOrder, updatedWorkOrder}
